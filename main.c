@@ -374,9 +374,11 @@ static int text_callback(MD_TEXTTYPE type, const MD_CHAR *text, MD_SIZE size,
                          void *userdata) {
     CallbackData *data = (CallbackData *)userdata;
 
-    char *content = substr((char *)text, 0, size);
     if (data->content == NULL) {
-        data->content = content;
+        data->content = substr((char *)text, 0, size);
+        if (data->content == NULL) {
+            return -1;
+        }
     } else {
         char *new_text = substr((char *)text, 0, size);
         if (new_text == NULL) {
