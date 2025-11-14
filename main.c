@@ -226,6 +226,7 @@ char *find_doc(char *program_basename) {
     char        file_pattern[3][PATH_MAX];
     char        current_dir[PATH_MAX];
     char        parent_dir[PATH_MAX];
+    char        full_path[PATH_MAX];
     struct stat st;
 
     snprintf(file_pattern[0], sizeof(file_pattern[0]), "scripts.md");
@@ -241,44 +242,25 @@ char *find_doc(char *program_basename) {
         if (dir_copy == NULL) {
             return NULL;
         }
-        strcpy(parent_dir, dirname(dir_copy));
+        strncpy(parent_dir, dirname(dir_copy), sizeof(parent_dir) - 1);
+        parent_dir[sizeof(parent_dir) - 1] = '\0';
         free(dir_copy);
-        
+
         int is_at_root = !strcmp(current_dir, parent_dir);
 
-        DIR *dir = opendir(current_dir);
-        if (dir) {
-            struct dirent *entry;
-
-            for (int i = 0; i < 3; i++) {
-                rewinddir(dir); // Reset directory stream to beginning
-                info("Looking for '%s' in dir '%s'\n", file_pattern[i], current_dir);
-
-                while ((entry = readdir(dir)) != NULL) {
-                    // Skip . and ..
-                    if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
-                        continue;
-                    }
-
-                    info("entry: %s\n", entry->d_name);
-
-                    if (strcasecmp(file_pattern[i], entry->d_name) == 0) {
-                        char full_path[PATH_MAX];
-                        snprintf(full_path, sizeof(full_path), "%s%s%s", current_dir, "/", entry->d_name);
-
-                        if (stat(full_path, &st) == 0) {
-                            if (S_ISREG(st.st_mode) || S_ISLNK(st.st_mode)) {
-                                closedir(dir);
-                                return strdup(full_path);
-                            }
-                        }
-                    }
+        for (int i = 0; i < 3; i++) {
+            char *file = file_pattern[i];
+            snprintf(full_path, sizeof(full_path), "%s/%s", current_dir, file);
+            info("Looking for '%s' in dir '%s'\n", file, current_dir);
+            if (stat(full_path, &st) == 0) {
+                if (S_ISREG(st.st_mode) || S_ISLNK(st.st_mode)) {
+                    return strdup(full_path);
                 }
             }
-            closedir(dir);
         }
 
-        strcpy(current_dir, parent_dir);
+        strncpy(current_dir, parent_dir, sizeof(current_dir) - 1);
+        current_dir[sizeof(current_dir) - 1] = '\0';
         if (is_at_root) {
             break;
         }
@@ -712,49 +694,28 @@ MD_NODE *md_parse_file(char *file_path) {
     }
 
     // Get file size
-    if (fseek(fp, 0, SEEK_END) != 0) {
-        fclose(fp);
-        error("Failed to seek file: %s\n", file_path);
-        return NULL;
-    }
-    
+    fseek(fp, 0, SEEK_END);
     long size = ftell(fp);
-    if (size < 0) {
-        fclose(fp);
-        error("Failed to get file size: %s\n", file_path);
-        return NULL;
-    }
-    
-    if (fseek(fp, 0, SEEK_SET) != 0) {
-        fclose(fp);
-        error("Failed to seek file: %s\n", file_path);
-        return NULL;
-    }
+    fseek(fp, 0, SEEK_SET);
 
-    if (size == 0) {
+    if (size <= 0) {
         fclose(fp);
         error("Empty file: %s\n", file_path);
         return NULL;
     }
 
     // Allocate buffer and read file
-    char *buffer = malloc(size + 1);
+    char *buffer =
+        calloc(size + 1, 1); // Use calloc to ensure zero initialization
     if (!buffer) {
         fclose(fp);
         error("Memory allocation failed\n");
         return NULL;
     }
 
-    size_t bytes_read = fread(buffer, 1, size, fp);
-    if (ferror(fp)) {
-        fclose(fp);
-        free(buffer);
-        error("Error reading file: %s\n", file_path);
-        return NULL;
-    }
-    
-    fclose(fp);
+    size_t bytes_read  = fread(buffer, 1, size, fp);
     buffer[bytes_read] = '\0';
+    fclose(fp);
 
     if (bytes_read == 0) {
         free(buffer);
@@ -1054,7 +1015,7 @@ char *md_node_to_markdown(MD_NODE *node) {
                 }
                 if (buffer) {
                     snprintf(buffer + buffer_len, buffer_size - buffer_len,
-                             "```%s\n%s```\n\n", block->info, block->content);
+                             "``%s\n%s```\n\n", block->info, block->content);
                     buffer_len += strlen(buffer + buffer_len);
                 }
             }
@@ -1452,7 +1413,7 @@ int main(int argc, char **argv) {
             return print_node_env(doc, config.key);
         }
 
-        info("No command specified, print a hint.\n");
+        info("No command specified, printing hints.\n");
         if (config.markdown) {
             printf("%s", md_node_to_markdown(doc));
         } else {
